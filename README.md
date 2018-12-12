@@ -18,33 +18,35 @@
     *EndDatePresence - DateTime - [EndDatePresenceAttribute]
     *StartDatePresence - DateTime - [StartDatePresenceAttribute]
     *IdUserProjectFK - int
-* Worker:
-    * Id - int 
-    * Name - string - minLength: 2, maxLength:15, reqiered
-    * UserName - string - minLength: 2, maxLength:10, reqiered, uniqe
-    * Password - string - minLength: 6, maxLength:10, reqiered
-    * Email - string  ,minLength: 6, maxLength:30,reqiered
-    * job - int - will contain the id of job's type
-    * ManagerName - string -minLength: 2, maxLength:15   
 * Project:
-    * Id - int 
-    * Name - string -  minLength: 2, maxLength:25,uniqe, reqiered,
-    * CustomerName - string -  minLength: 2, maxLength:15, reqiered,
-    * TeamLeader - `Worker` type - reqiered-  will contain the id of the project manager
-    * DevelopHoures - int - reqiered
-    * QAHoures - int - reqiered
-    * UIUXHoures - int - reqiered
-    * StartDate - date - reqiered 
-    * EndDate - date - reqiered, must be after `StartDate`
-* ProjectWorker:
-    * Id - int 
-    * Worker - `Worker` type
-    * Project - `Project` type
-    * AllocatedHours - int 
-    * WorkHours - int
-* Job:
-     * Id - int
-     * Name - string
+    * IdProject - int - key 
+    * ProjectName - string - minLength: 5, maxLength:20, reqiered , UniqueProjectNameAttribute
+    * ClientName - string - minLength: 5, maxLength:20, reqiered
+    * IdTeamLeader - int 
+    * HoursForDevelopers - double
+    * HoursForQA - double
+    * HoursForUI_UX - double
+    * Active - bool
+    * StartDate - DateTime
+    * EndDate - DateTime
+* StatusUser:
+    * IdStatus - int - key
+    * StatusName - string -  MinLength(5),MaxLength(20),
+* User:
+    * IdUser - int - key
+    * UserName - string - MinLength(5),MaxLength(20),Required
+    * Password - string - [MinLength(64), MaxLength(64)], [UserPasswordAttribute],Required
+    * IdStatus - int - Required
+    * SumHours - double ,0
+    * IdTeamLeader - int 
+    * EmailUser - string - EmailAddress
+    * IsActive - bool -true
+    * ComputerIp - string - 0
+* UserProject:
+     * IdUserProject - int
+     * HoursProjectUser - int
+     * IdUser - int
+     * IdProject - int
 
 ### Controllers
 * Home controller:
