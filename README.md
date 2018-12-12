@@ -1,4 +1,4 @@
-# Final project - TRUTH_TIME_CT
+# Final project - TRUTH_TIME_CT / by Rachel Einy & Tamar Braverman
 
 ## Using this technologies:
 * MySql
