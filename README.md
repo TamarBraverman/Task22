@@ -47,7 +47,52 @@
      * HoursProjectUser - int
      * IdUser - int
      * IdProject - int
+#### HelpModels
 
+* EmailSent:
+    * NameUser - string 
+    * Subject - string
+    * Body - string
+    * Password - string - default value:"!qaz!qaz"
+    * fromAddress - string - default value:"user.seldat@gmail.com";
+    * ToAddress - string
+    * Body - string 
+* HoursOfUserProjectByDays:
+    * Day - string
+    * hours - double
+* NameUserAndSumHours:
+    * IdUser - int 
+    * IdProject - int
+    * NameUser - string 
+    * ProjectName - string
+    * IdTeamLeader - int 
+    * NameTeamLeader - string
+    * SumHours - double 
+    * SumHoursHadToDo - double
+    * MonthOfDailyPresence - int
+* ProjectWithUserPermissions:
+    * Project - Project
+    * UserPerminissions - List<User>
+* UserHelp:
+     * UserName - string - MinLength(5), MaxLength(20),Required
+     * Password - string - MinLength(64), MaxLength(64),Required
+     * ComputerIP - string - default value="0"
+   * UserIPComputer:
+      * IPComputer - string - default value="0"
+* UserProjectHelp:
+     * IdUserProject - int
+     * HoursProjectUser - int
+     * IdUser - int
+     * NameTeamLeader - string
+     * EndDate - DateTime
+     * StartDate - DateTime
+     * IdProject - int
+     * NameProject - string
+     * NameUser - string
+     * TimeLeft - double
+     * IdStatusUser - int
+     * IdDaliyPresence - int
+   
 ### Controllers
 * DailyPresenceController:
     * Post - adding task to user - Adding start date to the task of user 
@@ -311,7 +356,270 @@ namespace _01_BOL
     }
 }
 ```
+```csharp
+using System;
+using System.Collections.Generic;
+using System.Configuration;
+using System.Net.Mail;
 
+namespace _01_BOL.HelpModels
+{
+    public class EmailSent
+    {
+        public string NameUser { get; set; }
+        public string Subject { get; set; }
+        public string Body { get; set; }
+        public string Password { get; } = "!qaz!qaz";//ConfigurationManager.AppSettings["password"];
+        public string fromAddress { get; } = "user.seldat@gmail.com";
+        public string ToAddress { get; set; }
+        //change 18/11
+        public List<string> Attachments { get; set; } = new List<string>();
+    }
+}
+```
+```csharp
+namespace _01_BOL.HelpDepartment
+{
+    public class HoursOfUserProjectByDays
+    {
+        public string Day;
+        public double hours;
+    }
+}
+```
+```csharp
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace _01_BOL.HelpModels
+{ 
+    public class NameUserAndSumHours
+    {      
+        public int IdUser { get; set; }
+        public int IdProject { get; set; }
+        public string NameUser { get; set; }
+        public string ProjectName { get; set; }
+        public int IdTeamLeader { get; set; }
+        public string NameTeamLeader { get; set; }
+        public double SumHours { get; set; }
+        public double SumHoursHadToDo { get; set; }
+        public int MonthOfDailyPresence { get; set; }
+    }
+}
+```
+```csharp
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace _01_BOL.HelpModels
+{
+  public  class ProjectWithUserPermissions
+    {
+       public Project Project { get; set; }
+        public List<User> UserPerminissions { get; set; }
+    }
+}
+```
+```csharp
+using System;
+using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace _01_BOL.HelpModels
+{
+    public class UserHelp
+    {
+        [MinLength(5), MaxLength(20)]
+        [Required(ErrorMessage = "User Name is Required")]
+        public string  UserName{ get; set; }
+        [MinLength(64), MaxLength(64)]
+        [Required(ErrorMessage = "Password is Required")]
+        public string  Password{ get; set; }
+        public string ComputerIP { get; set; } = "0";
+    }
+}
+```
+```csharp
+namespace _01_BOL.HelpModels
+{
+    public class UserIPComputer
+    {
+        public string IPComputer { get; set; } = "0";
+    }
+}
+```
+```csharp
+using System;
+using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace _01_BOL.HelpDepartment
+{
+    public class UserProjectHelp
+    {
+        public int IdUserProject { get; set; }
+        public int HoursProjectUser { get; set; }
+        public int IdUser { get; set; }
+        public string NameTeamLeader { get; set; }
+        public DateTime EndDate { get; set; }
+        public DateTime StartDate { get; set; }
+        public int IdProject { get; set; }
+        public string NameProject { get; set; }
+        public string NameUser { get; set; }
+        public double TimeLeft { get; set; }
+        public int IdStatusUser { get; set; }
+        public int IdDaliyPresence { get; set; }
+    }
+}
+```
+```csharp
+using System;
+using System.ComponentModel.DataAnnotations;
+
+namespace _01_BOL.Validations
+{
+    public class EndDatePresenceAttribute : ValidationAttribute
+    {
+        override protected ValidationResult IsValid(object value, ValidationContext validationContext)
+        {
+            DateTime startDatePresence = (validationContext.ObjectInstance as DailyPresence).StartDatePresence;
+            DateTime endDatePresence = (DateTime)value;
+            return ((endDatePresence - startDatePresence).TotalHours >= 0) ? null :
+                new ValidationResult("EndDateTime has to be bigger than StartDateTime");
+        }
+
+    }
+}
+```
+```csharp
+using System;
+using System.ComponentModel.DataAnnotations;
+
+namespace _01_BOL.Validations
+{
+    class EndDateProjectAttribute: ValidationAttribute
+    {
+        override protected ValidationResult IsValid(object value, ValidationContext validationContext)
+        {
+            DateTime startDateProject = (validationContext.ObjectInstance as Project).StartDate;
+            DateTime endDateProject = (DateTime)value;
+            return ((endDateProject - startDateProject).TotalHours >= 0) ? null :
+                new ValidationResult("EndDateTime has to be bigger than StartDateTime");
+        }
+    }
+}
+```
+```csharp
+using System;
+using System.ComponentModel.DataAnnotations;
+
+namespace _01_BOL.Validations
+{
+
+    public class StartDatePresenceAttribute : ValidationAttribute
+    {
+        override protected ValidationResult IsValid(object value, ValidationContext validationContext)
+        {
+            DateTime startPresence = (DateTime)value;
+            return ((startPresence - DateTime.Now).TotalHours <= 0) ? null :new ValidationResult("DateTime has to be smaller than    today");
+        }
+
+    }
+}
+```
+```csharp
+using System;
+using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
+using System.Linq;
+using System.Reflection;
+
+namespace _01_BOL.Validations
+{
+    class UniqueProjectNameAttribute : ValidationAttribute
+    {
+
+        protected override ValidationResult IsValid(object value, ValidationContext validationContext)
+        {
+            ValidationResult validationResult = ValidationResult.Success;
+            try
+            {
+                int idProject = (validationContext.ObjectInstance as Project).IdProject;
+                string nameProject = value.ToString();
+                Assembly assembly = Assembly.LoadFrom(@"C:\Users\user1\Desktop\חדש\TruthTimeCT\02_BLL\bin\Debug\02_BLL.dll");
+                Type projectServiceType = assembly.GetTypes().First(t => t.Name.Equals("LogicProjects"));
+                MethodInfo getAllUsersMethod = projectServiceType.GetMethods().First(m => m.Name.Equals("GetAllProjects"));
+                List<Project> projects = getAllUsersMethod.Invoke(Activator.CreateInstance(projectServiceType), new object[] { }) as List<Project>;
+                if (projects == null) return validationResult;//there are not project yet
+                bool isUnique = projects.Any(project => project.ProjectName==nameProject && project.IdProject != idProject) == false;
+                if (isUnique == false)
+                {
+                    ErrorMessage = "project name must be unique";
+                    validationResult = new ValidationResult(ErrorMessageString);
+                }
+            }
+            catch (Exception ex)
+            {
+                throw ex;
+            }
+            return validationResult;
+        }
+
+    }
+}
+```
+```csharp
+using System;
+using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
+using System.Linq;
+using System.Reflection;
+
+namespace _01_BOL.Validations
+{
+    class UserPasswordAttribute : ValidationAttribute
+    {
+
+        protected override ValidationResult IsValid(object value, ValidationContext validationContext)
+        {
+            ValidationResult validationResult = ValidationResult.Success;
+            try
+            {
+                int idUser = (validationContext.ObjectInstance as User).IdUser;
+                string userPassword = value.ToString();
+                Assembly assembly = Assembly.LoadFrom(@"C:\Users\user1\Desktop\חדש\TruthTimeCT\02_BLL\bin\Debug\02_BLL.dll");
+                Type userServiceType = assembly.GetTypes().First(t => t.Name.Equals("LogicUsers"));
+                MethodInfo getAllUsersMethod = userServiceType.GetMethods().First(m => m.Name.Equals("GetAllUsers"));
+                List<User> users = getAllUsersMethod.Invoke(Activator.CreateInstance(userServiceType), new object[] { }) as List<User>;
+                bool isUnique = users.Any(user => user.Password == (userPassword) && user.IdUser != idUser) == false;
+                if (isUnique == false)
+                {
+                    ErrorMessage = "user password must be unique";
+                    validationResult = new ValidationResult(ErrorMessageString);
+                }
+            }
+            catch (Exception ex)
+            {
+                throw ex;
+            }
+            return validationResult;
+        }
+
+    }
+}
+```
 ### BLL
 ```csharp
 using _00_DAL;
