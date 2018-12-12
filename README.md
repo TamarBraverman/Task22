@@ -13,11 +13,11 @@
 ## Web api
 ### Models
 #### BasicModels
-*DailyPresence:
-    *IdDaliyPresence - int - key - 
-    *EndDatePresence - DateTime - [EndDatePresenceAttribute]
-    *StartDatePresence - DateTime - [StartDatePresenceAttribute]
-    *IdUserProjectFK - int
+* DailyPresence:
+    * IdDaliyPresence - int - key - 
+    * EndDatePresence - DateTime - [EndDatePresenceAttribute]
+    * StartDatePresence - DateTime - [StartDatePresenceAttribute]
+    * IdUserProjectFK - int
 * Project:
     * IdProject - int - key 
     * ProjectName - string - minLength: 5, maxLength:20, reqiered , UniqueProjectNameAttribute
@@ -49,7 +49,7 @@
      * IdProject - int
 
 ### Controllers
-* Home controller:
+* DailyPresenceController:
     * Post - sign in to the system    
     requierd data: 
         * userName
