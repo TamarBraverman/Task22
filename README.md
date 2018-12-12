@@ -50,63 +50,38 @@
 
 ### Controllers
 * DailyPresenceController:
-    * Post - sign in to the system    
-    requierd data: 
-        * userName
-        * password
-    If the user is valid - we will check his status and navigate him to the currect main page, Else - we will return a matching error
-    * Post - change password
-    requierd data: 
-        * userName
-        * oldPassword
-        * newPassword
-    If the user want to change your password
-* Manager controller:
-    * Post - add a new project   
-    requierd data: 
-        * ProjectName
-        * CostumerName
-        * TeamLeaderName
-        * DevelopHoures
-        * QAHoures
-        * UIUXHoures
-        * StartDate 
-        * EndDate 
-    If the project details is valid - we will add the project to the DB and also add all the workers that bellow to the team-leader to this projects
-    * Post - add a new worker
-    requierd data: 
-          * Name
-          * UserName 
-          * Password 
-          * Email 
-          * job 
-          * Manager 
-    * Get - get all the details that the manager need to the report
-    * Get - get all managers - to choose for each worker your manager
-    * Get - get all jobs - to choose for each worker your job type
-    * Get - get all workers
-    * Get - get presence- get the presence for each worker can be filter by month,project and name
-    * Put - edit worker's details 
-    requierd data: 
-          * Name
-          * UserName 
-          * Email 
-          * job 
-          * Manager 
-    The manager can not change the worker's password     
-    * Delete - the manager can delete worker - It possible to delete just a worker and not a team-leader
-* TeamLeader controller:
-    * Get - get the details and status of the current project that the team-leader manage
-    * Get - get the details for each worker that bellow him
-    * Get - get all the hours that used in this month 
-    * Get - get worker's hours to each worker
-    * Put - update worker's hours - The team-leader need to update for each worker
-* Worker controller:
-    * Post - the worker can send massage to his team-leader
-    * Post - for update the hour that he started to work
-    * Get - get the worker details
-    * Get - get the project that he work now
-    * Get - get all the hours that he worked
+    * Post - adding task to user - Adding start date to the task of user 
+    * Put - update task - Update the end date of task of user
+    * Get - getNamesProjectsAndIdUPTodayForUser
+    * Get - GetDailyPresenceThatNotUpdated- return dailyPresence that not updated in endDate
+* ProjectsController:
+    * GET - get all projects 
+    * POST - add project
+    * Put -  update project 
+    * Get - GetAllProjectsUnderTheDirectionOfTheTeamLeader- return all project under teamLeader  
+    * Get - GetHoursThatUsersWorkedOfProject - return how many hours the users worked on spesipic project
+    * Get - GetHoursWorkedOnProjectByDays - get dictionary of days and the hours that worked in this day on any project
+    * Get - AllHoursThatWorkedUnderSpecipicTeamLeaderByMonth - All Hours ThatWorked Under Specipic TeamLeader By Month
+* ReportsController:
+    * GET -  ReportsForProject - return all data that connection to project
+* StatusUsersController:
+    * Get - get all status   
+* UsersController:
+    * GET - get all users 
+    * POST - add user
+    * Put - update user 
+    * Get - GetAllTeamLeaders
+    * Post - Login - login to system by user name and password
+    * Post - SentMail - from worker to manager
+    * Post - GetUserByComputer - get user by his ip computer in order to otomatic enterance
+* UsersProjectsController:
+    * GET - get all tasks of user 
+    * Get - GetAllUserProjectUnderTeamLeaderWithNames - return all details of users and UsersProjects that under specific teamleader
+    * Put - SetAllUsersProjects - update hours of all user project in the list 
+    * Get - AllDetailsUserProjectOfSpecipicUser - return all deatails user project under specific user
+    * Post - CreateUsersProjectListToAllEditUserThatChangeTeamLeader - all user that their team leader was changed needed to removing of              all preview team leader 
+        //after needed update user and adding new list of user project that under his team leader
+    * Post - AddUsersPermissionToProject - add user project to all user that sent
 ***
 # Code of each tier
 
@@ -116,195 +91,223 @@ using MySql.Data.MySqlClient;
 using System;
 using System.Collections.Generic;
 
-namespace DAL
+namespace _00_DAL
 {
-    public static class DBAccess
+    public static class DBUse
     {
-        static MySqlConnection Connection = new MySqlConnection("SERVER=127.0.0.1;PORT=3306;UID=root;persistsecurityinfo=True;DATABASE=task_managment;SslMode=none");
+      
+        static MySqlConnection Connection = new MySqlConnection
+        ("SERVER=127.0.0.1;PORT=3306;UID=root;persistsecurityinfo=True;DATABASE=truth_time_ct;SslMode=none");
         public static int? RunNonQuery(string query)
         {
-            lock (Connection)
+            try
             {
-                try
+                Connection.Open();
+                MySqlCommand command = new MySqlCommand(query, Connection);
+                return command.ExecuteNonQuery();
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+            finally
+            {
+                if (Connection.State != System.Data.ConnectionState.Closed)
                 {
-                    Connection.Open();
-                    MySqlCommand command = new MySqlCommand(query, Connection);
-                    return command.ExecuteNonQuery();
-                }
-                catch (Exception e)
-                {
-                    return null;
-                }
-                finally
-                {
-                    if (Connection.State != System.Data.ConnectionState.Closed)
-                    {
-                        Connection.Close();
-                    }
+                    Connection.Close();
                 }
             }
-        }
 
+        }
         public static object RunScalar(string query)
         {
-            lock (Connection)
+            try
             {
-                try
+                Connection.Open();
+                MySqlCommand command = new MySqlCommand(query, Connection);
+                return command.ExecuteScalar();
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+            finally
+            {
+                if (Connection.State != System.Data.ConnectionState.Closed)
                 {
-                    Connection.Open();
-                    MySqlCommand command = new MySqlCommand(query, Connection);
-                    return command.ExecuteScalar();
-                }
-                catch (Exception e)
-                {
-                    return null;
-                }
-                finally
-                {
-                    if (Connection.State != System.Data.ConnectionState.Closed)
-                    {
-                        Connection.Close();
-                    }
+                    Connection.Close();
                 }
             }
-        }
 
+        }
         public static List<T> RunReader<T>(string query, Func<MySqlDataReader, List<T>> func)
         {
-            lock (Connection)
+            try
             {
-                try
+                Connection.Open();
+                MySqlCommand command = new MySqlCommand(query, Connection);
+                MySqlDataReader reader = command.ExecuteReader();
+                return func(reader);
+            }
+            catch (Exception e)
+            {
+                return null;
+            }
+            finally
+            {
+                if (Connection.State != System.Data.ConnectionState.Closed)
                 {
-                    Connection.Open();
-                    MySqlCommand command = new MySqlCommand(query, Connection);
-                    MySqlDataReader reader = command.ExecuteReader();
-                    return func(reader);
-                }
-                catch (Exception ex)
-                {
-                    return null;
-                }
-                finally
-                {
-                    if (Connection.State != System.Data.ConnectionState.Closed)
-                    {
-                        Connection.Close();
-                    }
+                    Connection.Close();
                 }
             }
+
         }
+        public static Dictionary<T, double> RunReaderDictionary<T>(string query, Func<MySqlDataReader, Dictionary<T, double>> func)
+        {
+            try
+            {
+                Connection.Open();
+                MySqlCommand command = new MySqlCommand(query, Connection);
+                MySqlDataReader reader = command.ExecuteReader();
+                return func(reader);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+            finally
+            {
+                if (Connection.State != System.Data.ConnectionState.Closed)
+                {
+                    Connection.Close();
+                }
+            }
+
+        }
+
+
     }
 }
-
+csharp
 ```
 
 ### BOL
 ```csharp
-using BOL.validations;
+using _01_BOL.Validations;
 using System.ComponentModel.DataAnnotations;
-
-namespace BOL
+using System;
+namespace _01_BOL
 {
-    public class Worker
+    public class DailyPresence
     {
         [Key]
-        public int Id { get; set; }
-        [Required]
-        [MinLength(2), MaxLength(15)]
-        public string Name { get; set; }
-        [Required]
-        [MinLength(2), MaxLength(10)]
-        [UniqeUserName]
-        public string UserName { get; set; }
-        [Required]
-        [MinLength(6), MaxLength(64)]
-        public string Password { get; set; }
-        public int JobId { get; set; }
-        [Required]
-        [MinLength(6), MaxLength(30)]
-        public string EMail { get; set; }
-        public int? ManagerId { get; set; }
+        public int IdDaliyPresence { get; set; }
+        [EndDatePresenceAttribute]
+        [Required(ErrorMessage = "EndDate Presence is Required")]
+        public DateTime EndDatePresence { get; set; }
+        [StartDatePresenceAttribute]
+        [Required(ErrorMessage = "StartDate Presence is Required")]
+        public DateTime StartDatePresence { get; set; }
+        [Required(ErrorMessage = "Id User Project is Required")]
+        public int IdUserProjectFK { get; set; }
 
     }
 }
 
 ```
 ```csharp
-using BOL.validations;
+using _01_BOL.Validations;
 using System;
 using System.ComponentModel.DataAnnotations;
 
-namespace BOL
+namespace _01_BOL
 {
     public class Project
     {
         [Key]
-        public int Id { get; set; }
-        [Required]
-        [MinLength(2), MaxLength(25)]
-        [UniqeName]
-        public string Name { get; set; }
-        public int TeamLeaderId { get; set; }
-        [Required]
-        [MinLength(2), MaxLength(15)]
-        public string Customer { get; set; }
-        [Required]
-        public int DevelopHours { get; set; }
-        [Required]
-        public int QAHours { get; set; }
-        [Required]
-        public int UiUxHours { get; set; }
-        [Required]
-        public DateTime StartDate { get; set; } = DateTime.Today;
-        [Required]
+        public int IdProject { get; set; }
+        [Required(ErrorMessage = "ProjectName is Required")]
+        [MinLength(5),MaxLength(20)]
+        [UniqueProjectNameAttribute]
+        public string ProjectName { get; set; }
+        [MinLength(5), MaxLength(20)]
+        public string ClientName { get; set; }
+        [Required(ErrorMessage = "IdTeamLeader is Required")]
+        public int IdTeamLeader { get; set; }
+        public double HoursForDevelopers { get; set; }
+        public double HoursForQA { get; set; }
+        public double HoursForUI_UX { get; set; }
+        public bool Active { get; set; } = true;
+        [Required(ErrorMessage = "StartDate Project is Required")]
+        public DateTime StartDate { get; set; }
+        [EndDateProjectAttribute]
+        [Required(ErrorMessage = "EndDate Project is Required")]
         public DateTime EndDate { get; set; }
+
     }
 }
 ```
 ```csharp
 using System.ComponentModel.DataAnnotations;
 
-namespace BOL
+namespace _01_BOL
 {
-  public  class ProjectWorker
+    public class StatusUser
     {
         [Key]
-        public int Id { get; set; }
-        public int WorkerId { get; set; }
-        public Project ProjectId { get; set; }
-        public float AllocatedHours { get; set; } 
+        public int IdStatus { get; set; }
+        [Required(ErrorMessage = "Status Name is Required")]
+        public string StatusName { get; set; }
+    }
+}
+
+```
+```csharp
+using _01_BOL.Validations;
+using System.ComponentModel.DataAnnotations;
+
+namespace _01_BOL
+{
+    public class User
+    {
+        [Key]
+        public int IdUser { get; set; }
+        [MinLength(5),MaxLength(20)]
+        [Required(ErrorMessage = "User Name is Required")]
+        public string UserName { get; set; }
+        [MinLength(64), MaxLength(64)]
+        [UserPasswordAttribute]
+        [Required(ErrorMessage = "Password is Required")]
+        public string Password { get; set; }
+        [Required(ErrorMessage = "Id Status is Required")]
+        public int IdStatus { get; set; }
+
+        public double? SumHours { get; set; } = 0;
+        public int IdTeamLeader { get; set; }
+        [Required(ErrorMessage = "Email is Required")]
+        [EmailAddress]
+        public  string EmailUser { get; set; }
+        public bool IsActive { get; set; } = true;
+        public string ComputerIp { get; set; } = "0";
     }
 }
 ```
 ```csharp
-using System;
 using System.ComponentModel.DataAnnotations;
 
-namespace BOL
+namespace _01_BOL
 {
-    class WorkHours
+    public class UserProject
     {
         [Key]
-        public int Id { get; set; }
-        public int ProjectWorkId { get; set; }
-        public DateTime Date { get; set; }
-        public DateTime Start { get; set; }
-        public DateTime End { get; set; }
-    }
-}
-```
-```csharp
-using System.ComponentModel.DataAnnotations;
-
-namespace BOL
-{
-    public class Job
-    {
-        [Key]
-        public int Id { get; set; }
-        [Required]
-        [MinLength(2), MaxLength(15)]
-        public string Name { get; set; }
+        public int IdUserProject { get; set; }
+        [Required(ErrorMessage = "Hours for User Project is Required")]
+        public int HoursProjectUser { get; set; }
+        [Required(ErrorMessage = "Id User is Required")]
+        public int IdUser { get; set; }
+        [Required(ErrorMessage = "Id Project is Required")]
+        public int IdProject { get; set; }
+       
     }
 }
 ```
