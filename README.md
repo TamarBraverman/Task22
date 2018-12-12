@@ -314,622 +314,1119 @@ namespace _01_BOL
 
 ### BLL
 ```csharp
-using BOL;
-using DAL;
+using _00_DAL;
+using _01_BOL;
+using _01_BOL.HelpDepartment;
 using MySql.Data.MySqlClient;
 using System;
 using System.Collections.Generic;
-using System.Net;
-using System.Net.Mail;
-using System.Timers;
 
-namespace BLL
+namespace _02_BLL
 {
-    public static class HomeLogic
+    public static class LogicDailyPresence
     {
-        public static Worker Login(string userName, string password)
+        /// <summary>
+        /// update Daily presence when user begin work and after when he finish
+        /// the function check if create new daliy presence or just to update
+        /// </summary>
+        /// <param name="daliyPresence">all data on daily Presence</param>
+        /// <returns>true  when update succeeded</returns>
+        public static bool UpdateDailyPresence(DailyPresence daliyPresence)
         {
-            string query = $"SELECT * FROM task_managment.workers WHERE user_name='{userName}' and password='{password}' ";
-            Func<MySqlDataReader, List<Worker>> func = (reader) => {
-                List<Worker> worker = new List<Worker>();
+            daliyPresence.StartDatePresence = daliyPresence.StartDatePresence.ToLocalTime();
+            daliyPresence.EndDatePresence = daliyPresence.EndDatePresence.ToLocalTime();
+            //check if first time or only update end time
+            string formatForMySqlEndDatePresence = daliyPresence.EndDatePresence.ToString("yyyy-MM-dd HH:mm:ss");
+            string query = $"SELECT distinct d2.idDaliyPresence FROM truth_time_ct.daily_presence as d2 where d2.idUserProject ={ daliyPresence.IdUserProjectFK} and d2.startDatePresence = d2.endDatePresence;";
+            string rezult = DBUse.RunScalar(query).ToString();
+            query = $" UPDATE truth_time_ct.daily_presence as d SET d.endDatePresence = '{ formatForMySqlEndDatePresence}'" +
+                    $" where d.idDaliyPresence = {rezult}";
+            return DBUse.RunNonQuery(query) == 1;
+        }
+        public static bool AddDailyPresence(DailyPresence daliyPresence)
+        {
+
+            daliyPresence.StartDatePresence = daliyPresence.StartDatePresence.ToLocalTime();
+            daliyPresence.EndDatePresence = daliyPresence.EndDatePresence.ToLocalTime();
+            string formatForMySqlEndDatePresence = daliyPresence.EndDatePresence.ToString("yyyy-MM-dd HH:mm:ss");
+            string formatForMySqlStartDatePresence = daliyPresence.StartDatePresence.ToString("yyyy-MM-dd HH:mm:ss");
+            string query = $"INSERT INTO truth_time_ct.daily_presence VALUES ({daliyPresence.IdDaliyPresence},'{formatForMySqlEndDatePresence}','{formatForMySqlStartDatePresence}'" +
+                $",{daliyPresence.IdUserProjectFK})";
+            return DBUse.RunNonQuery(query) == 1;
+        }
+        /// <summary>
+        /// the function returns all the user project that their date in the range of projects includes today
+        /// </summary>
+        /// <param name="IdUser">for which user get actual projects</param>
+        /// <returns>return all list project</returns>
+        public static List<UserProjectHelp> GetNamesProjectsAndIdUPTodayForUser(int IdUser)
+        {
+            string query = $"SELECT idUserProject,projectName FROM truth_time_ct.users_projects as up join truth_time_ct.projects as p " +
+                $"on p.idProject=up.idProject where up.idUser={IdUser} and up.idProject " +
+                $"in(SELECT idProject from truth_time_ct.projects where startDate <= DATE(NOW()) and endDate>= DATE(NOW()) and idProject " +
+                $"in (select idProject from truth_time_ct.users_projects where idUser = {IdUser}))";
+            Func<MySqlDataReader, List<UserProjectHelp>> func = (reader) =>
+            {
+                List<UserProjectHelp> TasksForTodayOfCurrentUsers = new List<UserProjectHelp>();
                 while (reader.Read())
                 {
-                    worker.Add(new Worker
+                    TasksForTodayOfCurrentUsers.Add(new UserProjectHelp()
                     {
-                        Id = reader.GetInt32(0),
-                        Name = reader.GetString(1),
-                        UserName = reader.GetString(2),
-                        Password = "",
-                        EMail = reader.GetString(4),
-                        JobId = reader.GetInt32(5),
-                        ManagerId = reader[6] as int?
+                        IdUserProject = int.Parse(reader[0].ToString()),
+                        NameProject = reader[1].ToString()
                     });
                 }
-                return worker;
+                return TasksForTodayOfCurrentUsers;
             };
-            List<Worker> workers= DBAccess.RunReader(query, func);
-            if (workers != null && workers.Count > 0)
-                return workers[0];
-            return null;
+            return DBUse.RunReader(query, func);
         }
-
-        public static bool UpdatePassword(string userName, string oldpassword, string newPassord)
+        public static List<UserProjectHelp> GetDailyPresenceThatNotUpdated(int idUser)
         {
-            string query =$" UPDATE workers SET password = '{newPassord}' WHERE user_name = '{userName}' AND password = '{oldpassword}'";
-            return DBAccess.RunNonQuery(query) == 1;
+            string query = $"select d.*,up.hoursProjectUser,up.idProject,up.idUser,p.projectName from daily_presence d join users_projects up on d.idUserProject=up.idUserProject join projects p on p.idProject=up.idProject where up.idUser = {idUser} and d.startDatePresence = d.endDatePresence and up.idProject = p.idProject";
+            Func<MySqlDataReader, List<UserProjectHelp>> func = (reader) =>
+            {
+                List<UserProjectHelp> userProjectHelps = new List<UserProjectHelp>();
+                while (reader.Read())
+                {
+                    userProjectHelps.Add(new UserProjectHelp()
+                    {
+                        IdDaliyPresence = (int)reader[0],
+                        EndDate = (DateTime)reader[1],
+                        StartDate = (DateTime)reader[2],
+                        IdUserProject = (int)reader[3],
+                        HoursProjectUser = (int)reader[4],
+                        IdProject = (int)reader[5],
+                        IdUser = (int)reader[6],
+                        NameProject = (string)reader[7],
+                    });
+
+                };
+                return userProjectHelps;
+
+            };
+            var listUserProjectHelp = DBUse.RunReader(query, func);
+            return listUserProjectHelp;
+
         }
+    }
+}
+```
+```csharp
+using _01_BOL.HelpModels;
+using System;
+using System.IO;
+using System.Net;
+using System.Net.Mail;
 
-        public static bool sendEmail(string sub, string body, string email)
+namespace _02_BLL.Logic
+{
+    public class LogicEmail
+    {
+        /// <summary>
+        /// sent mail to manager
+        /// </summary>
+        /// <param name="emailSent">All contents of the email</param>
+        /// <returns>if mail was sent</returns>
+        public static bool SentMail(EmailSent emailSent)
         {
-            MailMessage msg = new MailMessage();
-            msg.From = new MailAddress("shtilimrishum2018@gmail.com");
-            msg.To.Add(new MailAddress(email));
-            msg.Subject = sub;
-            msg.Body = body;
+            if (emailSent.ToAddress == null)//need to manager else this for users
+                emailSent.ToAddress = LogicUsers.GetAllSpesificStatus("manager")[0].EmailUser;
+            MailMessage mail = new MailMessage(emailSent.fromAddress, emailSent.ToAddress);
             SmtpClient client = new SmtpClient();
-            client.UseDefaultCredentials = true;
-            client.Host = "smtp.gmail.com";
-            client.Port = 587;
-            client.EnableSsl = true;
+            client.Port = 25;
             client.DeliveryMethod = SmtpDeliveryMethod.Network;
-            client.Credentials = new NetworkCredential("shtilimrishum2018@gmail.com", "0504190762");
-            client.Timeout = 20000;
+            client.UseDefaultCredentials = true;
+            client.Credentials = new NetworkCredential(emailSent.fromAddress, emailSent.Password);
+            client.EnableSsl = true;
+            client.Host = "smtp.gmail.com";
+            mail.Subject = emailSent.Subject + " is sent from " + emailSent.NameUser;
+            mail.Body = emailSent.Body;
+            foreach (string filePath in emailSent.Attachments)
+            {
+                string fileName = Path.GetFileName(filePath);
+                mail.Attachments.Add(new Attachment(filePath));
+            }
             try
             {
-                client.Send(msg);
+                client.Send(mail);
+                mail.IsBodyHtml = false;
                 return true;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 return false;
             }
-            finally
-            {
-                msg.Dispose();
-            }
-        }
-   
-        public static void OnStart(object sender, ElapsedEventArgs args)
-        {
-            string query = $"SELECT w.email, p.name ,p.end_date" +
-            $" FROM workers w JOIN project_workers pw ON W.worker_id = pw.worker_id JOIN projects p" +
-            $" ON p.project_id = pw.project_id" +
-            $" WHERE p.end_date <= NOW() + INTERVAL 1 DAY" +
-             $" UNION SELECT w.email, p.name ,p.end_date" +
-            $" FROM workers w JOIN projects p ON p.team_leader = W.worker_id" +
-             $" WHERE p.end_date <= NOW() + INTERVAL 1 DAY";
-
-            Func<MySqlDataReader, List<object>> func = (reader) => {
-                List<object> objects = new List<object>();
-                while (reader.Read())
-                {
-                    var o = new
-                    {
-                        email = reader.GetString(0),
-                        name = reader.GetString(1),
-                        end_date = Convert.ToDateTime(reader.GetString(2)),
-                    };
-                    sendEmail("Notification do not end task", $"the project {o.name} end in {o.end_date}!!", o.email);
-                }
-                return objects;
-            };
-            List<object> objects2 = DBAccess.RunReader(query, func);
-        }
-        public static  void Notifications()
-        {
-            OnStart(null, null);
-            Timer timer = new Timer();
-            timer.Interval = 60000*60*24; // once a day
-            timer.Elapsed += new ElapsedEventHandler(OnStart);
-            timer.Start();
         }
     }
 }
+
 ```
 ```csharp
-using BOL;
-using DAL;
-using MySql.Data.MySqlClient;
-using System;
-using System.Collections.Generic;
-
-namespace BLL
-{
-    public class ManagerLogic
-    {
-        public static bool AddProject(Project project)
-        {
-            string query = $"INSERT INTO task_managment.projects  " +
-                $"(name,customer,team_leader,develop_houres,qa_houres,ui_ux_houres,start_date,end_date)" +
-                $" VALUES ('{project.Name}','{project.Customer}'," +
-                $"'{project.TeamLeaderId}',{project.DevelopHours},{project.QAHours},{project.UiUxHours}," +
-                $"'{project.StartDate.Year}-{project.StartDate.Month}-{project.StartDate.Day}','{project.EndDate.Year}-{project.EndDate.Month}-{project.EndDate.Day}')";
-            if (DBAccess.RunNonQuery(query) == 1)
-            {
-                return AddWorkersToProject(project);
-            }
-            return false;
-        }
-
-        private static bool AddWorkersToProject(Project project)
-        {
-            var query = $"SELECT project_id FROM projects WHERE name = '{project.Name}'";
-            int idProject = (int)DBAccess.RunScalar(query);
-            query = $"SELECT worker_id FROM workers" +
-                    $" WHERE manager ={project.TeamLeaderId}";
-            List<int> workersId = new List<int>();
-            Func<MySqlDataReader, List<int>> func = (reader) =>
-            {
-                List<int> workers = new List<int>();
-                while (reader.Read())
-                {
-                    //Add all the teamLeadr's worker to the project
-                    workers.Add(reader.GetInt32(0));
-                }
-                return workers;
-            };
-
-            workersId = DBAccess.RunReader(query, func);
-            workersId.ForEach(idWorker =>
-            {
-                var q = $"INSERT INTO project_workers (worker_id,project_id) VALUES({idWorker},{idProject})";
-                DBAccess.RunNonQuery(q);
-            });
-            return true;
-        }
-
-        public static bool addWorkersToProject(int[] ids, string name)
-        {
-            string q = $"SELECT project_id FROM projects WHERE name = '{name}'";
-            int idProject = (int)DBAccess.RunScalar(q);
-            foreach (var item in ids)
-            {
-                string query = $"INSERT INTO task_managment.project_workers (worker_id,project_id) VALUES({item},{idProject})";
-                if (DBAccess.RunNonQuery(query) == 0)
-                    return false;
-            }
-            return true;
-        }
-
-        public static bool AddWorker(Worker worker)
-        {
-            string query = $"INSERT INTO task_managment.workers  " +
-                $"(name,user_name,password,email,job,manager)" +
-                $" VALUES ('{worker.Name}','{worker.UserName}'," +
-                $"'{worker.Password}','{worker.EMail}',{worker.JobId},{worker.ManagerId})";
-          if (DBAccess.RunNonQuery(query) == 1)
-            {
-                int id =(int)DBAccess.RunScalar( $" SELECT worker_id FROM workers WHERE user_name = '{worker.UserName}'");
-                string query2 = $" SELECT project_id FROM task_managment.projects WHERE team_leader={worker.ManagerId}";
-                Func<MySqlDataReader, List<int>> func = (reader) =>
-                {
-                    List<int> projectsId = new List<int>();
-                    while (reader.Read())
-                    {
-                        projectsId.Add(reader.GetInt32(0));
-                    }
-                    return projectsId;
-                };
-
-                List<int> projectsIds= DBAccess.RunReader(query2, func);
-                projectsIds.ForEach(p =>
-                {
-                    string query3 = $"INSERT INTO task_managment.project_workers (worker_id,project_id) VALUES ({id},{p})";
-                    DBAccess.RunNonQuery(query3);
-                });
-                return true;
-            }
-            return false;
-        }
-
-        public static bool UpdateWorker(Worker worker)
-        {
-               string  query = $"UPDATE task_managment.workers SET name='{worker.Name}', user_name='{worker.UserName}'" +
-                $", email='{worker.EMail}', job={worker.JobId}, manager={worker.ManagerId} WHERE worker_id={worker.Id}";
-            return DBAccess.RunNonQuery(query) == 1;
-        }
-
-        public static List<Worker> GetAllWorkers()
-        {
-            string query = $"SELECT * FROM task_managment.workers";
-            Func<MySqlDataReader, List<Worker>> func = (reader) =>
-            {
-                List<Worker> workers = new List<Worker>();
-                while (reader.Read())
-                {
-                    workers.Add(new Worker
-                    {
-                        Id = reader.GetInt32(0),
-                        Name = reader.GetString(1),
-                        UserName = reader.GetString(2),
-                        Password = "",
-                        EMail = reader.GetString(4),
-                        JobId = reader.GetInt32(5),
-                        ManagerId = reader[6] as int?
-
-                    });
-                }
-                return workers;
-            };
-            return DBAccess.RunReader(query, func);
-        }
-        public static List<Worker> GetAllManagers()
-        {
-            string query = $"SELECT * FROM task_managment.workers WHERE job<=2";
-            Func<MySqlDataReader, List<Worker>> func = (reader) =>
-            {
-                List<Worker> managers = new List<Worker>();
-                while (reader.Read())
-                {
-                    managers.Add(new Worker
-                    {
-                        Id = reader.GetInt32(0),
-                        Name = reader.GetString(1),
-                        UserName = reader.GetString(2),
-                        Password = "",
-                        EMail = reader.GetString(4),
-                        JobId = reader.GetInt32(5),
-                        ManagerId = reader[6] as int?
-                    });
-                }
-                return managers;
-            };
-            return DBAccess.RunReader(query, func);
-        }
-
-        public static List<Job> GetAllJobs()
-        {
-            string query = $"SELECT * FROM task_managment.jobs";
-            Func<MySqlDataReader, List<Job>> func = (reader) =>
-            {
-                List<Job> jobs = new List<Job>();
-                while (reader.Read())
-                {
-                    jobs.Add(new Job
-                    {
-                        Id = reader.GetInt32(0),
-                        Name = reader.GetString(1),
-                    });
-                }
-                return jobs;
-            };
-            return DBAccess.RunReader(query, func);
-
-        }
-        public static bool RemoveWorker(int id)
-        {
-            //To delete an employee, it is necessary to delete it from all the tables in which it is located.
-            var q = $"SELECT project_worker_id  FROM task_managment.project_workers  WHERE   worker_id={id}";
-            List<int> projectsworkerId = new List<int>();
-            Func<MySqlDataReader, List<int>> func = (reader) =>
-            {
-                List<int> projects = new List<int>();
-                while (reader.Read())
-                {
-                    //Add all the teamLeadr's worker to the project
-                    projects.Add(reader.GetInt32(0));
-                }
-                return projects;
-            };
-
-            projectsworkerId = DBAccess.RunReader(q, func);
-            projectsworkerId.ForEach(idProject =>
-            {
-                var q2 = $"DELETE FROM task_managment.work_hours WHERE project_work_id={idProject}";
-                DBAccess.RunNonQuery(q2);
-            });
-            q = $"DELETE FROM task_managment.project_workers WHERE worker_id={id}";
-            DBAccess.RunNonQuery(q);
-            q = $"DELETE FROM task_managment.workers WHERE worker_id={id}";
-            return DBAccess.RunNonQuery(q) == 1;
-
-        }
-
-        public static List<Object> GetPresence()
-        {
-            string query = $"SELECT w.name, p.name, wh.date , wh.start , wh.end" +
-$" FROM workers W JOIN project_workers pw ON w.worker_id = pw.worker_id" +
-$" JOIN projects P ON pw.project_id = p.project_id JOIN work_hours wh" +
-$" ON wh.project_work_id = pw.project_worker_id" +
-$" ORDER BY w.name, p.name, wh.date , wh.start";
-
-            Func<MySqlDataReader, List<Object>> func = (reader) =>
-            {
-                List<Object> Presence = new List<Object>();
-                while (reader.Read())
-                {
-                    Presence.Add(new 
-                    {
-                        WorkerName = reader.GetString(0),
-                        ProjectName=reader.GetString(1),
-                        Date = reader.GetDateTime(2),
-                       Start=reader.GetString(3),
-                       End = reader.GetString(4),
-                    });
-                }
-                return Presence;
-            };
-
-            return DBAccess.RunReader(query, func);
-        }
-       
-        public static string getPassword(int workerId)
-        {
-            string query = $"select password from workers where worker_id={workerId}";
-            return DBAccess.RunScalar(query).ToString();
-        }
-
-    }
-}
-```
-```csharp
-using BOL;
-using DAL;
+using _00_DAL;
+using _01_BOL;
+using _01_BOL.HelpDepartment;
+using _01_BOL.HelpModels;
+using _02_BLL.Logic;
 using MySql.Data.MySqlClient;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace BLL
+namespace _02_BLL
 {
-    public static class TeamLeaderLogic
+    public class LogicProjects
     {
-
-        public static List<Project> GetProjectDeatails(int teamLeaderId)
+        //return all projects
+        public static List<Project> GetAllProjects()
         {
-            string query = $"SELECT * FROM task_managment.projects WHERE team_leader={teamLeaderId}";
+            string query = $"SELECT * FROM truth_time_ct.projects p where p.active=1";
 
             Func<MySqlDataReader, List<Project>> func = (reader) =>
             {
-                List<Project> projects = new List<Project>();
+                List<Project> Projects = new List<Project>();
                 while (reader.Read())
                 {
-                    projects.Add(new Project
+                    Projects.Add(new Project
                     {
-                        Id = reader.GetInt32(0),
-                        Name = reader.GetString(1),
-                        Customer = reader.GetString(2),
-                        TeamLeaderId = reader.GetInt32(3),
-                        DevelopHours = reader.GetInt32(4),
-                        QAHours = reader.GetInt32(5),
-                        UiUxHours = reader.GetInt32(6),
-                        StartDate = Convert.ToDateTime(reader.GetString(7)),
-                        EndDate = Convert.ToDateTime(reader.GetString(8))
+                        IdProject = (int)reader[0],
+                        ProjectName = (string)reader[1],
+                        ClientName = (string)reader[2],
+                        IdTeamLeader = (int)reader[3],
+                        StartDate = (DateTime)reader[4],
+                        EndDate = (DateTime)reader[5],
+                        HoursForDevelopers = (double)reader[6],
+                        HoursForQA = (double)reader[7],
+                        HoursForUI_UX = (double)reader[8],
+                        Active = reader.GetBoolean(9)
+
                     });
                 }
-                return projects;
+                return Projects;
             };
-            return DBAccess.RunReader(query, func);
+
+            return DBUse.RunReader(query, func);
         }
-
-        public static List<Worker> GetWorkersDeatails(int teamLeaderId)
+        //return project id by nameProject
+        public static string GetProjectId(string name)
         {
-            string query = $"SELECT * FROM task_managment.workers WHERE manager={teamLeaderId}";
-
-            Func<MySqlDataReader, List<Worker>> func = (reader) =>
-            {
-                List<Worker> workers = new List<Worker>();
-                while (reader.Read())
-                {
-                    workers.Add(new Worker
-                    {
-                        Id = reader.GetInt32(0),
-                        Name = reader.GetString(1),
-                        UserName = reader.GetString(2),
-                        Password = "",
-                        EMail = reader.GetString(4),
-                        JobId = reader.GetInt32(5),
-                        ManagerId = reader[6] as int?
-                    });
-                }
-                return workers;
-            };
-            return DBAccess.RunReader(query, func);
+            string query = $"SELECT idProject FROM truth_time_ct.projects WHERE projectName='{name}'";
+            return DBUse.RunScalar(query).ToString();
         }
-      
-        public static List<Object> getWorkersHours(int projectId)
+        //update project
+        public static bool UpdateProject(Project project)
         {
-            string query = $"SELECT  name,SEC_TO_TIME(SUM(TIME_TO_SEC(end) - TIME_TO_SEC(start))) AS Time, allocated_hours" +
-        $" FROM workers W JOIN project_workers PW ON W.worker_id=PW.worker_id LEFT JOIN work_hours WH ON PW.project_worker_id= WH.project_work_id" +
-       $" WHERE PW.project_id= {projectId}" +
-        $" GROUP BY name, allocated_hours ORDER BY name";
-            Func<MySqlDataReader, List<Object>> func = (reader) =>
-            {
-                List<Object> unknowns = new List<Object>();
-                while (reader.Read())
-                {
-                    string s = reader[2].ToString();
-                    float.TryParse(s, out float x);
-                       string s2;
-                    try
-                    {
-                        TimeSpan t = reader.GetTimeSpan(1);
-                        s2 = (t.Hours + t.Days * 24) + ":" + t.Minutes;
-                    }
-                    catch { s2 = 0 + ":" + 0; };
-                    unknowns.Add(new 
-                    {
-                        Name = reader.GetString(0),
-                       Hours = s2,
-                       AllocatedHours = x
-                    });
-                }
-                return unknowns;
-            };
-            return DBAccess.RunReader(query, func);
+            string query = $"UPDATE truth_time_ct.projects SET projectName='{project.ProjectName}'," +
+                $"idTeamLeader={project.IdTeamLeader},active={project.Active},startDate='{project.StartDate}',endDate='{project.EndDate}',hoursForDevelopers={project.HoursForDevelopers},hoursForQA={project.HoursForQA},hoursForUI_UX={project.HoursForUI_UX},clientName={project.ClientName} WHERE idProject = {project.IdProject}";
+            return DBUse.RunNonQuery(query) == 1;
         }
-        public static List<Object> getWorkerHours(int teamLeaderId, int workerId)
+        //add project
+        public static bool AddProject(Project project, ProjectWithUserPermissions projectWithUserPermissions)
         {
-            string query = $"SELECT pw.project_worker_id, p.name , allocated_hours , SEC_TO_TIME(SUM(TIME_TO_SEC(end) - TIME_TO_SEC(start)))" +
-            $" FROM project_workers PW join projects p on p.project_id=pw.project_id"+
-            $" LEFT join work_hours wh on wh.project_work_id= pw.project_worker_id" +
-            $" where p.team_leader={teamLeaderId} and pw.worker_id= {workerId}"+
-            $" group by pw.project_worker_id, p.name  ,  allocated_hours";
-
-            Func<MySqlDataReader, List<Object>> func = (reader) =>
+            //projectWithUserPermissions.Project.StartDate = projectWithUserPermissions.Project.StartDate.ToLocalTime();
+            //projectWithUserPermissions.Project.EndDate = projectWithUserPermissions.Project.EndDate.ToLocalTime();
+            string formatForMySqlStartDate = projectWithUserPermissions.Project.StartDate.ToString("yyyy-MM-dd");
+            string formatForMySqlEndDate = projectWithUserPermissions.Project.EndDate.ToString("yyyy-MM-dd");
+            bool isWorked = false;
+            string query = $"INSERT INTO truth_time_ct.projects VALUES (0,'{project.ProjectName}'," +
+                $"'{project.ClientName}',{project.IdTeamLeader},'{formatForMySqlStartDate}','{formatForMySqlEndDate}',{project.HoursForDevelopers},{project.HoursForQA},{project.HoursForUI_UX},{project.Active})";
+            isWorked = DBUse.RunNonQuery(query) == 1;
+            if (isWorked)
             {
-                List<Object> unknowns = new List<Object>();
-                while (reader.Read())
-                {
-                    string s = reader[2].ToString();
-                    float.TryParse(s, out float x);
-                    string s2 = reader[3].ToString();
-                    unknowns.Add(new 
-                    {
-                        Id = reader.GetInt32(0),
-                        Name = reader.GetString(1),
-                        AllocatedHours = x,
-                        Hours = s2
-                    });
-                }
-                return unknowns;
-            };
-            return DBAccess.RunReader(query, func);
-
-        }
-
-        public static string GetRemainingHours(int projectId, int jobId)
-        {
-          string jobName= ManagerLogic.GetAllJobs().FirstOrDefault(j=>j.Id==jobId).Name;
-            switch (jobName)
-            {
-                case "developer":
-                    {
-                        jobName = "develop_houres";
-                        break;
-                    }
-                case "QA":
-                    {
-                        jobName = "qa_houres";
-                        break;
-                    }
-                case "UxUi":
-                    {
-                        jobName = "ui_ux_houres";
-                        break;
-                    }
+                int idProject = int.Parse(GetProjectId(project.ProjectName));
+                LogicUserProject.CreateUsersProjectList(idProject, project.IdTeamLeader);
+                LogicUserProject.AddUsersPermission(projectWithUserPermissions.UserPerminissions, idProject);
             }
- 
-            string query = $" SELECT {jobName} - SUM(allocated_hours)" +
-$" FROM projects P JOIN  project_workers PW ON P.project_id = PW.project_id JOIN workers W ON W.worker_id = PW.worker_id" +
-$" WHERE PW.project_worker_id = {projectId} AND W.job = {jobId}";
-            return DBAccess.RunScalar(query).ToString();
+            return isWorked;
         }
-
-        public static bool UpdateWorkerHours(int projectWorkerId, int numHours)
+        //return all projects under teamLeader
+        public static List<Project> GetProjectsUnderTheDirectionOfTheTeamLeader(int IdTeamLeader)
         {
-            string query = $"UPDATE task_managment.project_workers SET allocated_hours={numHours} WHERE project_worker_id={projectWorkerId}";
-            return DBAccess.RunNonQuery(query) == 1;
+            //select all projects under teamLeader
+
+            string query = $"SELECT * FROM truth_time_ct.projects WHERE idTeamLeader={IdTeamLeader}";
+            Func<MySqlDataReader, List<Project>> func = (reader) =>
+            {
+                List<Project> Projects = new List<Project>();
+                while (reader.Read())
+                {
+                    Projects.Add(new Project
+                    {
+                        IdProject = (int)reader[0],
+                        ProjectName = (string)reader[1],
+                        ClientName = (string)reader[2],
+                        IdTeamLeader = (int)reader[3],
+                        StartDate = (DateTime)reader[4],
+                        EndDate = (DateTime)reader[5],
+                        HoursForDevelopers = (double)reader[6],
+                        HoursForQA = (double)reader[7],
+                        HoursForUI_UX = (double)reader[8],
+                        Active = reader.GetBoolean(9)
+
+                    });
+                }
+                return Projects;
+            };
+
+            return DBUse.RunReader(query, func);
         }
-
-        public static string GetHours(int projectId)
+        //return project by id project
+        public static Project GetProjectByIdProject(int idProject)
         {
-            string query = $"SELECT SEC_TO_TIME(SUM(TIME_TO_SEC(end) - TIME_TO_SEC(start))) FROM task_managment.work_hours WHERE project_work_id IN" +
-                $"(SELECT project_worker_id FROM task_managment.project_workers" +
-                $" WHERE project_id={projectId}) ";
-            return DBAccess.RunScalar(query).ToString();
+            string query = $"SELECT * FROM truth_time_ct.projects WHERE idProject={idProject}";
+            Func<MySqlDataReader, List<Project>> func = (reader) =>
+            {
+                List<Project> Projects = new List<Project>();
+                while (reader.Read())
+                {
+                    Projects.Add(new Project
+                    {
+                        IdProject = (int)reader[0],
+                        ProjectName = (string)reader[1],
+                        ClientName = (string)reader[2],
+                        IdTeamLeader = (int)reader[3],
+                        StartDate = (DateTime)reader[4],
+                        EndDate = (DateTime)reader[5],
+                        HoursForDevelopers = (double)reader[6],
+                        HoursForQA = (double)reader[7],
+                        HoursForUI_UX = (double)reader[8],
+                        Active = reader.GetBoolean(9)
+
+                    });
+                }
+                return Projects;
+            };
+            Project myProject = DBUse.RunReader(query, func)[0];
+            return myProject;
+        }
+        //return hours that defined for project
+        public static int GetHoursOfProject(int idProject)
+        {
+            string query = $"SELECT hoursForProject FROM truth_time_ct.projects WHERE idProject={idProject}";
+            return int.Parse(DBUse.RunScalar(query).ToString());
+        }
+        //return how many hours the users worked on spesipic project   
+        public static List<NameUserAndSumHours> GetNamesAndHoursThatWorkedOfProject(int idProject)
+        {
+            double sumHours = 0;
+            //get the hours by dateDiff between start and end date
+            string query = $"SELECT userName, sum(sum_hours) from(SELECT u.userName, " +
+                $"idProject, TIMESTAMPDIFF(MINUTE, startDatePresence, endDatePresence) /60 as sum_hours " +
+                $"FROM truth_time_ct.daily_presence d right join truth_time_ct.users_projects up on d.idUserProject = " +
+                $"up.idUserProject right join truth_time_ct.users u on u.idUser = up.idUser WHERE  idProject = {idProject}) as table1 group by " +
+                $"userName UNION SELECT userName, sum(sum_hours) from(SELECT u.userName, idProject, TIMESTAMPDIFF(MINUTE, startDatePresence, " +
+                $"endDatePresence) /60 as sum_hours FROM truth_time_ct.daily_presence d left join truth_time_ct.users_projects up on d.idUserProject = up.idUserProject left join truth_time_ct.users u on u.idUser = up.idUser WHERE  idProject = {idProject}) as table1 group by userName";
+            Func<MySqlDataReader, List<NameUserAndSumHours>> func = (reader) =>
+            {
+                List<NameUserAndSumHours> NamesAndSumHours = new List<NameUserAndSumHours>();
+                while (reader.Read())
+                {
+                    sumHours = 0;
+                    if (reader[1].ToString() != "")
+                        sumHours = double.Parse(reader[1].ToString());
+                    NamesAndSumHours.Add(
+
+                        new NameUserAndSumHours()
+                        {
+                            NameUser = reader[0].ToString(),
+                            SumHours = sumHours
+                        }
+                        );
+                }
+                NamesAndSumHours.Add(
+                                     new NameUserAndSumHours()
+                                     {
+                                         NameUser = "not yet",
+                                         SumHours = NamesAndSumHours.Sum(s => s.SumHours)
+                                     }
+                                     );
+                return NamesAndSumHours;
+            };
+
+            return DBUse.RunReader(query, func);
+
+        }
+        //return dictionary of userProject and the hours that the user worked to this userProject; 
+        public static Dictionary<UserProject, double> GetDictionaryOfHoursThatUserWorkedOnProjectInPrecent(int idUser)
+        {
+            //for user select all data of UsersProjects of him with the time that he worked for that project;
+            string query = $"SELECT *,sum(SELECT DATEDIFF(hour, startDatePresence, endDatePresence) FROM truth_time_ct.daily_presence WHERE idProject=up.idProject and idUser={idUser}) from truth_time_ct.users_projects up WHERE up.idUser={idUser} Group By up.idUserProject,up.hoursProjectUser,up.idUser,up.idProject";
+            Func<MySqlDataReader, Dictionary<UserProject, double>> func = (reader) =>
+            {
+                Dictionary<UserProject, double> myDictionary = new Dictionary<UserProject, double>();
+                while (reader.Read())
+                {
+                    myDictionary.Add(new UserProject
+                    {
+                        IdUserProject = (int)reader[0],
+                        HoursProjectUser = (int)reader[1],
+                        IdUser = (int)reader[2],
+                        IdProject = (int)reader[3]
+                    }, (int)reader[4]);
+                }
+                return myDictionary;
+            };
+
+            return DBUse.RunReaderDictionary(query, func);
+        }
+        //get dictionary of days and the hours that users worked in this day on any project
+        public static List<HoursOfUserProjectByDays> GetHoursWorkedOnProjectByDays(int idUser, int month)
+        {
+            //select days and for every day the sum of hours that the users worked on specipic project on specipic month
+            string query = $"SELECT  dayofmonth(startDatePresence),TIME_TO_SEC(timediff(endDatePresence,startDatePresence))/3600 FROM daily_presence " +
+                $"WHERE idUserProject IN(SELECT idUserProject FROM truth_time_ct.users_projects WHERE idUser = {idUser}) AND MONTH(startDatePresence)={month}";
+            Func<MySqlDataReader, List<HoursOfUserProjectByDays>> func = (reader) =>
+              {
+                  List<HoursOfUserProjectByDays> DailySupply = new List<HoursOfUserProjectByDays>();
+                  while (reader.Read())
+                  {
+                      DailySupply.Add(
+                          new HoursOfUserProjectByDays()
+                          {
+                              Day = reader[0].ToString(),
+                              hours = double.Parse(reader[1].ToString())
+                          }
+                          );
+                  }
+                  return DailySupply;
+              };
+
+            return DBUse.RunReader(query, func);
+        }
+        //get dictionary of users and hours that worked
+        public static Dictionary<UserProject, double> GetUsersAndHoursThatWorkedOnProject(int idProject)
+        {
+
+            List<User> UsersOfProject = LogicUsers.GetUsersOfProject(idProject);
+            Dictionary<UserProject, double> UsersAndHoursWorkedOnProject = new Dictionary<UserProject, double>();
+            foreach (User user in UsersOfProject)
+            {
+                UserProject userProject = LogicUserProject.GetSpesipicUserProject(user.IdUser, idProject);
+                UsersAndHoursWorkedOnProject.Add(userProject, GetDictionaryOfHoursThatUserWorkedOnProjectInPrecent(user.IdUser)[userProject]);
+            }
+            return UsersAndHoursWorkedOnProject;
+        }
+        //return all projects under specipic teamLeader
+        public static List<Project> GetProjectsUnderTeamLeader(int idTeamLeader)
+        {
+            string query = $"SELECT * FROM truth_time_ct.Projects WHERE idTeamLeader={idTeamLeader}";
+
+            Func<MySqlDataReader, List<Project>> func = (reader) =>
+            {
+                List<Project> Projects = new List<Project>();
+                while (reader.Read())
+                {
+                    Projects.Add(new Project
+                    {
+                        IdProject = (int)reader[0],
+                        ProjectName = (string)reader[1],
+                        ClientName = (string)reader[2],
+                        IdTeamLeader = (int)reader[3],
+                        StartDate = (DateTime)reader[4],
+                        EndDate = (DateTime)reader[5],
+                        HoursForDevelopers = (double)reader[6],
+                        HoursForQA = (double)reader[7],
+                        HoursForUI_UX = (double)reader[8],
+                        Active = reader.GetBoolean(9)
+
+                    });
+                }
+                return Projects;
+            };
+            return DBUse.RunReader(query, func);
+        }
+        //all Hours That Worked Under Specipic teamLeader By month
+        public static List<NameUserAndSumHours> AllHoursThatWorkedUnderSpecipicTeamLeaderByMonth(int idTeamLeader, int month)
+        {
+            string query = $"select sum(allocated) as allocated, userName, sum(sum_hours) as sum_hours from(SELECT allocated, userName, sum(sum_hours) as sum_hours " +
+                $"from(SELECT up.hoursProjectUser as allocated, up.idUserProject, u.userName, p.idProject, TIMESTAMPDIFF(MINUTE, startDatePresence, endDatePresence) / 60 as sum_hours FROM truth_time_ct.daily_presence d  right join truth_time_ct.users_projects up " +
+                $"on d.idUserProject = up.idUserProject  join truth_time_ct.users u on u.idUser = up.idUser   join truth_time_ct.projects p on p.idProject = up.idProject " +
+                $"WHERE p.idTeamLeader = {idTeamLeader} and u.idTeamLeader = {idTeamLeader} and  month(d.startDatePresence) = {month}) as table1 group by idUserProject " +
+                $"union select(up.hoursProjectUser) as allocated, u.userName,0 as sum_hours from users u left join users_projects up on u.idUser = up.idUser where u.idTeamLeader = {idTeamLeader} " +
+                $"and up.idUserProject not in(select idUserProject from daily_presence where month(startDatePresence)={month}))as table2 group by userName";
+            Func<MySqlDataReader, List<NameUserAndSumHours>> func = (reader) =>
+            {
+                List<NameUserAndSumHours> NamesAndSumHours = new List<NameUserAndSumHours>();
+                while (reader.Read())
+                {
+
+                    NamesAndSumHours.Add(
+
+                        new NameUserAndSumHours()
+                        {
+                            SumHoursHadToDo = double.Parse(reader[0].ToString()),
+                            NameUser = reader[1].ToString(),
+                            SumHours = double.Parse(reader[2].ToString())
+                        }
+                        );
+                }
+                return NamesAndSumHours;
+            };
+
+            return DBUse.RunReader(query, func);
+        }
+        //sent mail for all user that didn't finish their task day before deadline
+        public static void AllEmailUserThatNeededReminderAboutDeadline()
+        {
+            string query = $"SELECT u.userName,p1.projectName, u.emailUser,p1.endDate " +
+                $"FROM users u INNER JOIN users_projects up " +
+                $"ON u.idUser = up.idUser INNER JOIN projects p1 " +
+                $"ON p1.idProject = up.idProject " +
+                $"WHERE up.idProject IN " +
+                $"( " +
+                $"SELECT P.idProject " +
+                $"FROM projects P " +
+                $"WHERE P.endDate IN (CURDATE(), CURDATE() +INTERVAL 1 DAY) " +
+                $")  " +
+                $"AND up.idUserProject IN " +
+                $"( " +
+                $"SELECT UP2.idUserProject " +
+                $"FROM users_projects UP2 INNER JOIN daily_presence D " +
+                $"ON UP2.idUserProject= D.idUserProject " +
+                $"GROUP BY UP2.idUserProject, up2.hoursProjectUser " +
+                $"having SUM(time_to_sec( " +
+                $"timediff(D.endDatePresence, D.startDatePresence))/ 3600 " +
+                $")< up2.hoursProjectUser " +
+                $")";
+            Func<MySqlDataReader, List<EmailSent>> func = (reader) =>
+            {
+                List<EmailSent> emails = new List<EmailSent>();
+                while (reader.Read())
+                {
+                    var email = new EmailSent()
+                    {
+                        NameUser = (string)reader[0],
+                        Subject = "Dear " + (string)reader[0],
+                        Body = "The project deadline " + (string)reader[1] + " is " + Convert.ToDateTime(reader.GetString(3)),
+                        ToAddress = (string)reader[2]
+                    };
+                    LogicEmail.SentMail(email);
+                }
+                return emails;
+            };
+            List<EmailSent> mails = DBUse.RunReader(query, func);
         }
     }
 }
 
 ```
 ```csharp
-using BOL;
-using DAL;
+using _00_DAL;
+using _01_BOL.HelpModels;
 using MySql.Data.MySqlClient;
 using System;
 using System.Collections.Generic;
 
-namespace BLL
+namespace _02_BLL.Logic
 {
-   public class WorkerLogic
+    public class LogicReports
     {
-        public static bool UpdateStartHour(int idProjectWorker,DateTime hour )
+        /// <summary>
+        /// get all data of all the system
+        /// </summary>
+        /// <returns>how many hours the users worked for every project</returns>
+        public static List<NameUserAndSumHours> ReportsForProject()
         {
-            string query = $"INSERT INTO task_managment.work_hours (project_work_id, date, start)"+
-                $" VALUES({idProjectWorker}, '{DateTime.Now.Year}-{DateTime.Now.Month}-{DateTime.Now.Day}', '{hour.TimeOfDay}')";
-            return DBAccess.RunNonQuery(query) == 1;
-        }
-        public static bool UpdateEndHour(int idProjectWorker, DateTime hour)
-        {
-            string query = $"UPDATE task_managment.work_hours  SET end='{hour.TimeOfDay}'  WHERE project_work_id={idProjectWorker}" +
-                $" AND END IS NULL";
-            return DBAccess.RunNonQuery(query) == 1;
-        }
-       
-        public static bool SendMsg(string sub, string body,int id)
-        {
-            string query = $"SELECT email FROM task_managment.workers where worker_id = {id}" ;
-           string email=(string) DBAccess.RunScalar(query);
-            return HomeLogic.sendEmail(sub, body, email);
-        }
+            double sumHours = 0;
+            int month = 0;
+            //get the hours by dateDiff between start and end date
+            string query = $"SELECT idUser,idProject,userName,projectName,idTeamLeader,nameTeam, sum(sum_hours),sum(allocate) ,monthOfDailyPresence " +
+                $"from(SELECT  u.idUser, up.idProject, u.userName,projectName,u.idTeamLeader,u2.userName as nameTeam, TIMESTAMPDIFF(MINUTE, startDatePresence, endDatePresence) / 60 as sum_hours, up.hoursProjectUser as allocate, month(startDatePresence) as monthOfDailyPresence " +
+                $"FROM truth_time_ct.daily_presence d right join truth_time_ct.users_projects up " +
+                $"on d.idUserProject = up.idUserProject  join truth_time_ct.users u on u.idUser = up.idUser join projects p on p.idProject=up.idProject " +
+                $" join truth_time_ct.users u2 on u2.idUser = u.idTeamLeader" +
+                $") as table1 " +
+                $"group by idUser,idProject " +
+                $"UNION " +
+                $"SELECT idUser,idProject,userName,projectName,idTeamLeader,nameTeam, sum(sum_hours) , sum(allocate) , monthOfDailyPresence " +
+                $"from( " +
+                $"SELECT  u.idUser, up.idProject, u.userName,projectName,u.idTeamLeader,u2.userName as nameTeam, TIMESTAMPDIFF(MINUTE, startDatePresence, endDatePresence) / 60 as sum_hours, up.hoursProjectUser as allocate, month(startDatePresence) as monthOfDailyPresence " +
+                $"FROM truth_time_ct.daily_presence d left join truth_time_ct.users_projects up " +
+                $"on d.idUserProject = up.idUserProject  join truth_time_ct.users u on u.idUser = up.idUser join projects p on p.idProject=up.idProject " +
+                $" join truth_time_ct.users u2 on u2.idUser = u.idTeamLeader" +
+                $") as table1 " +
+                $"group by idUser,idProject";
+            Func<MySqlDataReader, List<NameUserAndSumHours>> func = (reader) =>
+            {
+                List<NameUserAndSumHours> NamesAndSumHours = new List<NameUserAndSumHours>();
+                while (reader.Read())
+                {
+                    sumHours = 0;
+                    month = 0;
+                    if (reader[6].ToString() != "")
+                        sumHours = double.Parse(reader[6].ToString());
+                    if (reader[8].ToString() != "")
+                        month = int.Parse(reader[8].ToString());
+                    NamesAndSumHours.Add(
 
-        public static Worker GetWorkerDetails(int id)
-        {
-            string query = $"SELECT * FROM task_managment.workers WHERE worker_id={id}";
-            Func<MySqlDataReader, List<Worker>> func = (reader) =>
-            {
-                List<Worker> workers = new List<Worker>();
-                while (reader.Read())
-                {
-                    workers.Add(new Worker
-                    {
-                        Id = reader.GetInt32(0),
-                        Name = reader.GetString(1),
-                        UserName = reader.GetString(2),
-                        Password = "",
-                        EMail = reader.GetString(4),
-                        JobId = reader.GetInt32(5),
-                        ManagerId = reader[6] as int?
-                    });
-                }
-                return workers;
-            };
-            List<Worker> workers2 = DBAccess.RunReader(query, func);
-            if (workers2 != null && workers2.Count > 0)
-                return workers2[0];
-            return null;
-        }
-        public static List<object> GetProject(int id)
-        {
-            string query = $"SELECT PW.project_worker_id, p.name,  allocated_hours, SEC_TO_TIME(SUM(TIME_TO_SEC(end) - TIME_TO_SEC(start))) AS Time" +
-        $" FROM project_workers PW JOIN projects P ON P.project_id = PW.project_id LEFT JOIN" +
-        $" work_hours WH ON PW.project_worker_id = WH.project_work_id" +
-        $" WHERE PW.worker_id = {id}" +
-        $"    GROUP BY PW.project_worker_id,p.name,allocated_hours   ORDER BY project_worker_id";
-      
-            Func<MySqlDataReader, List<Object>> func = (reader) =>
-            {
-                List<Object> unknowns = new List<Object>();
-                while (reader.Read())
-                {
-                     string s=reader[2].ToString();
-                    float.TryParse(s,out float  x);
-                    string s2;
-                    try {
-                        TimeSpan t = reader.GetTimeSpan(3);
-                        s2 = (t.Hours + t.Days * 24) + ":" + t.Minutes;
-                    }
-                    catch { s2 = 0+ ":" +0; };
-                        unknowns.Add(new 
+                        new NameUserAndSumHours()
                         {
-                            Id = reader.GetInt32(0),
-                            Name = reader.GetString(1),
-                            AllocatedHours = x,
-                            Hours = s2 
+                            IdUser = (int)reader[0],
+                            IdProject = (int)reader[1],
+                            NameUser = (string)reader[2],
+                            ProjectName = (string)reader[3],
+                            IdTeamLeader = (int)reader[4],
+                            NameTeamLeader = (string)reader[5],
+                            SumHours = sumHours,
+                            SumHoursHadToDo = double.Parse(reader[7].ToString()),
+                            MonthOfDailyPresence = month
+                        }
+                        );
+                }
+                return NamesAndSumHours;
+            };
+
+            return DBUse.RunReader(query, func);
+
+        }
+    }
+}
+```
+
+### BLL
+```csharp
+using _00_DAL;
+using _01_BOL;
+using MySql.Data.MySqlClient;
+using System;
+using System.Collections.Generic;
+
+namespace _02_BLL
+{
+    public static class LogicStatusUsers
+    {
+        /// <summary>
+        /// all status that exit in system
+        /// </summary>
+        /// <returns>status</returns>
+        public static List<StatusUser> GetAllStatusUsers()
+        {
+            string query = $"SELECT * FROM truth_time_ct.status_users";
+
+            Func<MySqlDataReader, List<StatusUser>> func = (reader) =>
+            {
+                List<StatusUser> status = new List<StatusUser>();
+                while (reader.Read())
+                {
+                    status.Add(new StatusUser
+                    {
+                        IdStatus = (int)reader[0],
+                        StatusName = (string)reader[1]
                     });
                 }
-                return unknowns;
+                return status;
             };
-            return DBAccess.RunReader(query, func);
-        }
 
-        public static string GetAllHours(int id)
+            return DBUse.RunReader(query, func);
+        }
+    }
+}
+```
+
+### BLL
+```csharp
+using _00_DAL;
+using _01_BOL;
+using System;
+using System.Collections.Generic;
+using MySql.Data.MySqlClient;
+using _01_BOL.HelpDepartment;
+using System.Linq;
+
+namespace _02_BLL
+{
+    public class LogicUserProject
+    {
+        public static List<UserProject> GetAllUserProject()
         {
-            string query = $"SELECT SEC_TO_TIME(SUM(TIME_TO_SEC(end) - TIME_TO_SEC(start))) FROM task_managment.work_hours" +
-                $" WHERE work_hours_id IN(SELECT project_worker_id" +
- $" FROM task_managment.project_workers WHERE worker_id = {id})";
-            return DBAccess.RunScalar(query).ToString();
+            string query = $"SELECT * FROM truth_time_ct.users_projects";
+
+            Func<MySqlDataReader, List<UserProject>> func = (reader) =>
+            {
+                List<UserProject> users_projects = new List<UserProject>();
+                while (reader.Read())
+                {
+                    users_projects.Add(new UserProject
+                    {
+                        IdUserProject = (int)reader[0],
+                        HoursProjectUser = (int)reader[1],
+                        IdProject = (int)reader[2],
+                        IdUser = (int)reader[3]
+                    });
+                }
+                return users_projects;
+            };
+
+            return DBUse.RunReader(query, func);
+        }
+        public static bool RemoveUserProjectByUserAndProject(int idUser, int idProject)
+        {
+            string query = $"DELETE FROM truth_time_ct.users_projects WHERE idUser={idUser} and idProject={idProject}";
+            return DBUse.RunNonQuery(query) == 1;
+        }
+        //update hours for  userProject
+        public static bool UpdateUserProject(UserProject userProject)
+        {
+            string query = $"UPDATE truth_time_ct.users_projects SET hoursProjectUser={userProject.HoursProjectUser} WHERE idUserProject = {userProject.IdUserProject}";
+            return DBUse.RunNonQuery(query) == 1;
+        }
+        public static bool AddUserProject(UserProject userProject)
+        {
+            string query = $"INSERT INTO truth_time_ct.users_projects VALUES (0,{userProject.HoursProjectUser}" +
+                $",{userProject.IdProject},{userProject.IdUser})";
+            return DBUse.RunNonQuery(query) == 1;
+        }
+        public static UserProject GetSpesipicUserProject(int idUser, int idProject)
+        {
+            string query = $"SELECT * FROM truth_time_ct.users_projects where idUser={idUser} and idProject={idProject}";
+
+            Func<MySqlDataReader, List<UserProject>> func = (reader) =>
+             {
+                 List<UserProject> UserProject = new List<UserProject>();
+                 UserProject.Add(new UserProject
+                 {
+                     IdUserProject = (int)reader[0],
+                     HoursProjectUser = (int)reader[1],
+                     IdProject = (int)reader[2],
+                     IdUser = (int)reader[3]
+                 });
+                 return UserProject;
+             };
+
+            return DBUse.RunReader(query, func)[0];
+        }
+        //return all deatails of specipic user project
+        public static List<UserProjectHelp> AllDetailsUserProjectOfSpecipicUser(int idUser)
+        {
+            string query = $"" +
+                $"SELECT p.projectName,p.startDate,p.endDate ,up.hoursProjectUser,u.userName FROM truth_time_ct.Projects p join truth_time_ct.users_projects up on p.idProject = up.idProject" +
+                $" join truth_time_ct.users u on p.idTeamLeader = u.idUser" +
+                $" WHERE up.idUser = {idUser}";
+
+            Func<MySqlDataReader, List<UserProjectHelp>> func = (reader) =>
+            {
+                List<UserProjectHelp> userProjectHelp = new List<UserProjectHelp>();
+                while (reader.Read())
+                {
+                    userProjectHelp.Add(new UserProjectHelp
+                    {
+                        NameProject = (string)reader[0],
+                        StartDate = (DateTime)reader[1],
+                        EndDate = (DateTime)reader[2],
+                        HoursProjectUser = (int)reader[3],
+                        NameTeamLeader = (string)reader[4]
+
+                    });
+                }
+                return userProjectHelp;
+            };
+
+            return DBUse.RunReader(query, func);
+        }
+        //add usersProjects To Specipic Project
+        public static void CreateUsersProjectList(int idProject, int idTeamLeader)
+        {
+            List<User> allUsersUnderTeamLeader = LogicUsers.GetAllUsersUnderTeamLeader(idTeamLeader);
+            UserProject userProject;
+            foreach (User user in allUsersUnderTeamLeader)
+            {
+                userProject = new UserProject()
+                {
+                    IdProject = idProject,
+                    IdUser = user.IdUser,
+                    HoursProjectUser = 0
+                };
+                AddUserProject(userProject);
+            }
+
+        }
+        //return all names of users and UsersProjects under teamleader
+        public static List<UserProjectHelp> GetAllUserProjectUnderTeamLeaderWithNames(int idTeamLeader)
+        {
+            int idStatus = 0;
+            double allocate = 0;
+            string query = $"SELECT up.*,sub.catch,sub.idStatus FROM truth_time_ct.users_projects up join truth_time_ct.projects p on up.idProject = p.idProject join users u on up.idUser = u.idUser " +
+                $"join(select idStatus, idProject, sum(hoursProjectUser) as catch from(SELECT up.*, idStatus FROM truth_time_ct.users_projects up join truth_time_ct.projects p" +
+                $" on up.idProject = p.idProject join users u on up.idUser = u.idUser where p.active = true and p.idTeamLeader = {idTeamLeader}) as t1" +
+                $" group by idProject,idStatus) sub on p.idProject = sub.idProject and u.idStatus = sub.idStatus where p.active = true and p.idTeamLeader = {idTeamLeader}";
+            List<User> allUsers = LogicUsers.GetAllUsers();
+            List<Project> allProjectUnderTeamLeader = LogicProjects.GetProjectsUnderTeamLeader(idTeamLeader);
+            Func<MySqlDataReader, List<UserProjectHelp>> func = (reader) =>
+            {
+                List<UserProjectHelp> users_projects_help = new List<UserProjectHelp>();
+
+                while (reader.Read())
+                {
+                    idStatus = allUsers.FirstOrDefault(p => p.IdUser == (int)reader[3]).IdStatus;
+                    switch (idStatus)
+                    {
+                        case 3:
+                            allocate = allProjectUnderTeamLeader.FirstOrDefault(p => p.IdProject == (int)reader[2]).HoursForDevelopers;
+                            break;
+                        case 4:
+                            allocate = allProjectUnderTeamLeader.FirstOrDefault(p => p.IdProject == (int)reader[2]).HoursForQA;
+                            break;
+                        case 5:
+                            allocate = allProjectUnderTeamLeader.FirstOrDefault(p => p.IdProject == (int)reader[2]).HoursForUI_UX;
+                            break;
+                    }
+                    users_projects_help.Add(new UserProjectHelp
+                    {
+                        IdUserProject = (int)reader[0],
+                        HoursProjectUser = (int)reader[1],
+                        IdProject = (int)reader[2],
+                        IdUser = (int)reader[3],
+                        NameProject = allProjectUnderTeamLeader.FirstOrDefault(p => p.IdProject == (int)reader[2]).ProjectName,
+                        NameUser = allUsers.FirstOrDefault(p => p.IdUser == (int)reader[3]).UserName,
+                        TimeLeft = allocate - double.Parse(reader[4].ToString()),
+                        IdStatusUser = (int)reader[5]
+                    });
+                }
+
+                return users_projects_help;
+            };
+
+            return DBUse.RunReader(query, func);
+        }
+        //set all hours of usersProjects
+        public static bool SetAllUsersProjects(List<UserProject> userProjectForEdit)
+        {
+            foreach (UserProject userProject in userProjectForEdit)
+            {
+                if (!UpdateUserProject(userProject))
+                    return false;
+            }
+            return true;
+        }
+        //add UsersProjectsToAllNewUser
+        public static bool CreateUsersProjectListToNewUser(User oldUser, Boolean isNew)
+        {
+            string idUser = LogicUsers.GetUserIdByPassword(oldUser.Password);
+            User newUser = LogicUsers.GetUserByIdUser(int.Parse(idUser));
+            if (oldUser.IdTeamLeader == newUser.IdTeamLeader && isNew != false)
+                return true;
+            //if (oldUser.IdTeamLeader == user.IdTeamLeader)
+            //    return true;//because the teamLeader didnt changed so no need add userProjects
+            List<Project> allProjectUnderTeamLeader = LogicProjects.GetProjectsUnderTheDirectionOfTheTeamLeader(newUser.IdTeamLeader);
+            UserProject userProject;
+            bool b = true;
+            foreach (Project project in allProjectUnderTeamLeader)
+            {
+                userProject = new UserProject()
+                {
+                    IdProject = project.IdProject,
+                    IdUser = newUser.IdUser,
+                    HoursProjectUser = 0
+                };
+                if (!AddUserProject(userProject))
+                    b = false;
+            }
+            return b;
+        }
+        //remove UsersProjectsTothe user that passed to another teamLeader
+        public static bool RemoveUsersProjectListToUserThatPassedToAnotherTeamLeader(User user)
+        {
+            User userWithThePreviousTeamLeader = LogicUsers.GetUserByIdUser(user.IdUser);
+            if (userWithThePreviousTeamLeader.IdTeamLeader == user.IdTeamLeader)
+                return true;//because the teamLeader didnt changed so no need remove userProjects
+            List<Project> allProjectUnderTeamLeader = LogicProjects.GetProjectsUnderTheDirectionOfTheTeamLeader(userWithThePreviousTeamLeader.IdTeamLeader);
+            bool b = true;
+            foreach (Project project in allProjectUnderTeamLeader)
+            {
+                RemoveUserProjectByUserAndProject(userWithThePreviousTeamLeader.IdUser, project.IdProject);
+            }
+            return b;
+        }
+        //add userProject for permmissinUsers
+        public static bool AddUsersPermission(List<User> users, int idProject)
+        {
+            UserProject userProject;
+            bool b = true;
+            foreach (User user in users)
+            {
+                userProject = new UserProject()
+                {
+                    IdProject = idProject,
+                    IdUser = user.IdUser,
+                    HoursProjectUser = 0
+                };
+                if (!AddUserProject(userProject))
+                    b = false;
+            }
+            return b;
+        }
+        //remove UsersProjectsTothe user that deleted
+        public static bool RemoveUsersProjectListToUserThatDeleted(int idUser)
+        {
+            string query = $"DELETE FROM truth_time_ct.users_projects WHERE idUser={idUser}";
+            DBUse.RunScalar(query);
+            return true;
+        }
+    }
+}
+```
+
+### BLL
+```csharp
+using _00_DAL;
+using _01_BOL;
+using System;
+using System.Collections.Generic;
+using MySql.Data.MySqlClient;
+
+namespace _02_BLL
+{
+    public class LogicUsers
+    {
+        public static List<User> GetAllUsers()
+        {
+            string query = $"SELECT * FROM truth_time_ct.users u where isActive=1";
+            Func<MySqlDataReader, List<User>> func = (reader) =>
+            {
+                List<User> users = new List<User>();
+                while (reader.Read())
+                {
+                    int p = (int)reader[0];
+                    string p1 = (string)reader[1];
+                    string p2 = (string)reader[2];
+                    int p3 = (int)reader[3];
+                    string p4 = (string)reader[4];
+                    double p5 = (double)reader[5];
+                    int p6 = 0;
+                    int.TryParse(reader[6].ToString(), out p6);
+                    bool p7 = reader.GetBoolean(7);
+
+
+                    //StatusUser s = new StatusUser() { IdStatus = p3, StatusName = LogicStatusUsers.GetStatusName(p3) };
+                    users.Add(new User
+                    {
+                        IdUser = p,
+                        UserName = p1,
+                        Password = p2,
+                        IdStatus = p3,
+                        EmailUser = p4,
+                        SumHours = p5,
+                        IdTeamLeader = p6,
+                        IsActive = p7
+                    });
+                }
+                return users;
+            };
+
+            return DBUse.RunReader(query, func);
+        }
+        public static bool RemoveUser(User user)
+        {
+            string query = $"UPDATE truth_time_ct.users SET isActive ={ user.IsActive} WHERE idUser = { user.IdUser }";
+            return DBUse.RunNonQuery(query) == 1;
+        }
+        public static bool UpdateUser(User user)
+        {
+            User oldUser = LogicUsers.GetUserByIdUser(user.IdUser);
+            string query = $"UPDATE truth_time_ct.users SET userName='{user.UserName}',password='{user.Password}',idStatus={user.IdStatus},emailUser='{user.EmailUser}',sumHours={user.SumHours},idTeamLeader={user.IdTeamLeader},isActive={user.IsActive},ipComputer='{user.ComputerIp}' WHERE idUser={user.IdUser}";
+            DBUse.RunNonQuery(query);
+            return LogicUserProject.CreateUsersProjectListToNewUser(oldUser, true);
+        }
+        public static string GetUserIdByPassword(string pasword)
+        {
+            string query = $"SELECT idUser FROM truth_time_ct.users WHERE password='{pasword}'";
+            return DBUse.RunScalar(query).ToString();
+        }
+        public static bool AddUser(User user)
+        {
+            string query = $"INSERT INTO truth_time_ct.users VALUES (0,'{user.UserName}','{user.Password}'" +
+     $",{user.IdStatus},'{user.EmailUser}',{user.SumHours},{user.IdTeamLeader},{user.IsActive},'0')";
+            return DBUse.RunNonQuery(query) == 1 && LogicUserProject.CreateUsersProjectListToNewUser(user, false);
+        }
+        //return all users under TeamLeader
+        public static List<User> GetAllUsersUnderTeamLeader(int idTeamLeader)
+        {
+            string query = $"SELECT * FROM truth_time_ct.users WHERE idTeamLeader={idTeamLeader}";
+
+            Func<MySqlDataReader, List<User>> func = (reader) =>
+            {
+                List<User> users = new List<User>();
+                while (reader.Read())
+                {
+                    int p = (int)reader[0];
+                    string p1 = (string)reader[1];
+                    string p2 = (string)reader[2];
+                    int p3 = (int)reader[3];
+                    string p4 = (string)reader[4];
+                    double p5 = (double)reader[5];
+                    int p6 = 0;
+                    int.TryParse(reader[6].ToString(), out p6);
+                    bool p7 = reader.GetBoolean(7);
+                    users.Add(new User
+                    {
+                        IdUser = p,
+                        UserName = p1,
+                        Password = p2,
+                        IdStatus = p3,
+                        //StatusUserFK =s,
+                        EmailUser = p4,
+                        SumHours = p5,
+                        IdTeamLeader = p6,
+                        IsActive = p7
+
+                    });
+
+
+                }
+                return users;
+            };
+
+            return DBUse.RunReader(query, func);
+        }
+        //get user by idUser
+        public static User GetUserByIdUser(int idUser)
+        {
+            string query = $"SELECT * FROM truth_time_ct.users WHERE idUser={idUser}";
+            Func<MySqlDataReader, List<User>> func = (reader) =>
+            {
+                List<User> users = new List<User>();
+                while (reader.Read())
+                {
+                    int p6 = 0;
+                    int.TryParse(reader[6].ToString(), out p6);
+                    bool p7 = reader.GetBoolean(7);
+                    users.Add(new User
+                    {
+                        IdUser = (int)reader[0],
+                        UserName = (string)reader[1],
+                        Password = (string)reader[2],
+                        IdStatus = (int)reader[3],
+                        EmailUser = (string)reader[4],
+                        SumHours = (double)reader[5],
+                        IdTeamLeader = p6,
+                        IsActive = p7
+                    });
+                }
+                return users;
+            };
+            User myUser = DBUse.RunReader(query, func)[0];
+            return myUser;
+        }
+        //all users that worked on specipic project
+        public static List<User> GetUsersOfProject(int idProject)
+        {
+            string query = $"SELECT * FROM truth_time_ct.users u join truth_time_ct.users_projects up on u.idUser=up.idUser where up.idProject={idProject}";
+            Func<MySqlDataReader, List<User>> func = (reader) =>
+            {
+                List<User> Users = new List<User>();
+                while (reader.Read())
+                {
+                    int p6 = 0;
+                    int.TryParse(reader[6].ToString(), out p6);
+                    bool p7 = reader.GetBoolean(7);
+                    Users.Add(new User
+                    {
+                        IdUser = (int)reader[0],
+                        UserName = (string)reader[1],
+                        Password = (string)reader[2],
+                        IdStatus = (int)reader[3],
+                        EmailUser = (string)reader[4],
+                        SumHours = (double)reader[5],
+                        IdTeamLeader = p6,
+                        IsActive = p7
+                    });
+                }
+                return Users;
+            };
+            return DBUse.RunReader(query, func);
+        }
+        //return all team leader
+        public static List<User> GetAllTeamLeader()
+        {
+            string query = $"SELECT  * FROM truth_time_ct.users u join truth_time_ct.status_users s on u.idStatus = s.idStatus where s.statusName LIKE '%leader%'";
+            Func<MySqlDataReader, List<User>> func = (reader) =>
+            {
+                List<User> Users = new List<User>();
+                while (reader.Read())
+                {
+                    int p6 = 0;
+                    int.TryParse(reader[6].ToString(), out p6);
+                    bool p7 = reader.GetBoolean(7);
+                    Users.Add(new User
+                    {
+                        IdUser = (int)reader[0],
+                        UserName = (string)reader[1],
+                        Password = (string)reader[2],
+                        IdStatus = (int)reader[3],
+                        EmailUser = (string)reader[4],
+                        SumHours = (double)reader[5],
+                        IdTeamLeader = p6,
+                        IsActive = p7
+                    });
+                }
+                return Users;
+            };
+
+            return DBUse.RunReader(query, func);
+        }
+        //return all user that their status contains the variable got
+        public static List<User> GetAllSpesificStatus(string statusName)
+        {
+            string query = $"SELECT  * FROM truth_time_ct.users u join truth_time_ct.status_users s on u.idStatus = s.idStatus where s.statusName LIKE '%{statusName}%'";
+            Func<MySqlDataReader, List<User>> func = (reader) =>
+            {
+                List<User> Users = new List<User>();
+                while (reader.Read())
+                {
+                    int p6 = 0;
+                    int.TryParse(reader[6].ToString(), out p6);
+                    bool p7 = reader.GetBoolean(7);
+                    Users.Add(new User
+                    {
+                        IdUser = (int)reader[0],
+                        UserName = (string)reader[1],
+                        Password = (string)reader[2],
+                        IdStatus = (int)reader[3],
+                        EmailUser = (string)reader[4],
+                        SumHours = (double)reader[5],
+                        IdTeamLeader = p6,
+                        IsActive = p7
+                    });
+                }
+                return Users;
+            };
+
+            return DBUse.RunReader(query, func);
+        }
+        //return user by ip computer
+        public static User GetUserByIPComputer(string computerIP)
+        {
+
+            string query = $"SELECT * FROM truth_time_ct.users u where ipComputer='{computerIP}'";
+            Func<MySqlDataReader, List<User>> func = (reader) =>
+            {
+                List<User> Users = new List<User>();
+                while (reader.Read())
+                {
+                    int p6 = 0;
+                    int.TryParse(reader[6].ToString(), out p6);
+                    bool p7 = reader.GetBoolean(7);
+                    Users.Add(new User
+                    {
+                        IdUser = (int)reader[0],
+                        UserName = (string)reader[1],
+                        Password = (string)reader[2],
+                        IdStatus = (int)reader[3],
+                        EmailUser = (string)reader[4],
+                        SumHours = (double)reader[5],
+                        IdTeamLeader = p6,
+                        IsActive = p7,
+                        ComputerIp = (string)reader[8]
+                    });
+                }
+                return Users;
+            };
+            User user = new User();
+            var listUsers = new List<User>();
+            listUsers = DBUse.RunReader(query, func);
+            if (listUsers.Count > 0)
+                return listUsers[0];
+            return user;
+
         }
     }
 }
