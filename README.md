@@ -1,4 +1,4 @@
-# Final project - TRUTH_TIME_CT / by Rachel Einy & Tamar Braverman
+# Final project - TRUTH_TIME_CT / by Rachel Eini & Tamar Braverman
 
 ## Using this technologies:
 * MySql
@@ -7,7 +7,7 @@
 * Angular
 
 ## System diagram:
-//לשים
+
 
 ***
 ## Web api
