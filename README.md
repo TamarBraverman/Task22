@@ -5,7 +5,7 @@
 * Web api
 * WinForms
 * Angular
-
+### We have been based on the project to create as many generics as possible to fit the additions at every stage
 ## System diagram:
 ![picture](images/diagram.png)
 
