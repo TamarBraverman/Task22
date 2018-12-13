@@ -7,7 +7,7 @@
 * Angular
 
 ## System diagram:
-
+![picture](images/diagram.png)
 
 ***
 ## Web api
